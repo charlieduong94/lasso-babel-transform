@@ -21,15 +21,55 @@ function readAndParse(path) {
         fs.readFileSync(path, readOptions)));
 }
 
+function getBabelOptions(curDir) {
+    let babelOptions;
+    let babelrcPath = path.join(curDir, '.babelrc');
+    let babelrcBrowserPath = path.join(curDir, '.babelrc-browser');
+
+    // First we check for a .babelrc-browser in the directory, if it
+    // exists, we read it and break. If not, we do the same for a
+    // .babelrc file. Otherwise, we fall back to looking for a
+    // package.json in the same directory with a "babel" key.
+    if (cachingFS.existsSync(babelrcBrowserPath)) {
+        babelOptions = readAndParse(babelrcBrowserPath);
+    } else if (cachingFS.existsSync(babelrcPath)) {
+        babelOptions = readAndParse(babelrcPath);
+    } else {
+        let packagePath = path.join(curDir, 'package.json');
+        if (cachingFS.existsSync(packagePath)) {
+            let packageJson = readAndParse(packagePath);
+
+            if (packageJson.babel) {
+                babelOptions = packageJson.babel;
+            }
+        }
+    }
+    return babelOptions;
+}
+
+function getProjectBabelOptions() {
+    let rootPackage = lassoPackageRoot.getRootPackage(path.dirname(require.main.filename));
+    let rootPackageDir = rootPackage.__dirname;
+
+    return getBabelOptions(rootPackageDir);
+}
+
 module.exports = {
     id: __filename,
     stream: false,
     createTransform(transformConfig) {
 
         var extensions = transformConfig.extensions;
+        var defaultToProjectBabel = transformConfig.defaultToProjectBabel;
 
         if (!extensions) {
             extensions = ['.js', '.es6'];
+        }
+
+        var projectBabelOptions;
+
+        if (defaultToProjectBabel) {
+            projectBabelOptions = getProjectBabelOptions();
         }
 
         extensions = extensions.reduce((lookup, ext) => {
@@ -56,39 +96,19 @@ module.exports = {
             let curDir = path.dirname(filename);
 
             while (true) {
-                let babelrcPath = path.join(curDir, '.babelrc');
-                let babelrcBrowserPath = path.join(curDir, '.babelrc-browser');
-
-                // First we check for a .babelrc-browser in the directory, if it
-                // exists, we read it and break. If not, we do the same for a
-                // .babelrc file. Otherwise, we fall back to looking for a
-                // package.json in the same directory with a "babel" key.
-                if (cachingFS.existsSync(babelrcBrowserPath)) {
-                    babelOptions = readAndParse(babelrcBrowserPath);
+                babelOptions = getBabelOptions(curDir);
+                if (babelOptions) {
                     rootDir = curDir;
                     break;
-                } else if (cachingFS.existsSync(babelrcPath)) {
-                    babelOptions = readAndParse(babelrcPath);
-                    rootDir = curDir;
-                    break;
-                } else {
-                    let packagePath = path.join(curDir, 'package.json');
-                    if (cachingFS.existsSync(packagePath)) {
-                        let packageJson = readAndParse(packagePath);
-
-                        if (packageJson.babel) {
-                            babelOptions = packageJson.babel;
-                            rootDir = curDir;
-                            break;
-                        }
-                    }
                 }
 
                 if (curDir === rootPackage.__dirname) {
+                    rootDir = curDir;
                     break;
                 } else {
                     let parentDir = path.dirname(curDir);
                     if (!parentDir || parentDir === curDir) {
+                        rootDir = curDir;
                         break;
                     }
                     curDir = parentDir;
@@ -96,8 +116,14 @@ module.exports = {
             }
 
             if (!babelOptions) {
-                // No babel config... Don't do anything
-                return code;
+                // utilize project's babel options if the option is set and
+                // the babel options exist
+                if (defaultToProjectBabel && projectBabelOptions) {
+                    babelOptions = projectBabelOptions;
+                } else {
+                    // No babel config... Don't do anything
+                    return code;
+                }
             }
 
             babelOptions.filename = path.relative(rootDir, filename);
