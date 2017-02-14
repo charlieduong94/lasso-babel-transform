@@ -47,8 +47,8 @@ function getBabelOptions(curDir) {
     return babelOptions;
 }
 
-function getProjectBabelOptions() {
-    let rootPackage = lassoPackageRoot.getRootPackage(path.dirname(require.main.filename));
+function getProjectBabelOptions(projectDir) {
+    let rootPackage = lassoPackageRoot.getRootPackage(projectDir);
     let rootPackageDir = rootPackage.__dirname;
 
     return getBabelOptions(rootPackageDir);
@@ -61,6 +61,7 @@ module.exports = {
 
         var extensions = transformConfig.extensions;
         var defaultToProjectBabel = transformConfig.defaultToProjectBabel;
+        var projectDir = transformConfig.projectDir;
 
         if (!extensions) {
             extensions = ['.js', '.es6'];
@@ -69,7 +70,8 @@ module.exports = {
         var projectBabelOptions;
 
         if (defaultToProjectBabel) {
-            projectBabelOptions = getProjectBabelOptions();
+            let directory = projectDir ? projectDir : path.dirname(require.main.filename);
+            projectBabelOptions = getProjectBabelOptions(directory);
         }
 
         extensions = extensions.reduce((lookup, ext) => {
